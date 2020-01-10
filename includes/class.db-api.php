@@ -7,7 +7,7 @@ class DB_API {
 	public $dbh = null;
 	public $query = array();
 	static $instance;
-	public $ttl = 3600;
+	public $ttl = 30;
 	public $cache = array();
 	public $connections = array();
 
@@ -51,7 +51,58 @@ class DB_API {
 		$this->dbs[$name] = (object) $args;
 
 	}
+	
+function json_validate($string)
+{
+    // decode the JSON data
+    $result = json_decode($string);
 
+    // switch and check possible JSON errors
+    switch (json_last_error()) {
+        case JSON_ERROR_NONE:
+            $error = ''; // JSON is valid // No error has occurred
+            break;
+        case JSON_ERROR_DEPTH:
+            $error = 'The maximum stack depth has been exceeded.';
+            break;
+        case JSON_ERROR_STATE_MISMATCH:
+            $error = 'Invalid or malformed JSON.';
+            break;
+        case JSON_ERROR_CTRL_CHAR:
+            $error = 'Control character error, possibly incorrectly encoded.';
+            break;
+        case JSON_ERROR_SYNTAX:
+            $error = 'Syntax error, malformed JSON.';
+            break;
+        // PHP >= 5.3.3
+        case JSON_ERROR_UTF8:
+            $error = 'Malformed UTF-8 characters, possibly incorrectly encoded.';
+            break;
+        // PHP >= 5.5.0
+        case JSON_ERROR_RECURSION:
+            $error = 'One or more recursive references in the value to be encoded.';
+            break;
+        // PHP >= 5.5.0
+        case JSON_ERROR_INF_OR_NAN:
+            $error = 'One or more NAN or INF values in the value to be encoded.';
+            break;
+        case JSON_ERROR_UNSUPPORTED_TYPE:
+            $error = 'A value of a type that cannot be encoded was given.';
+            break;
+        default:
+            $error = 'Unknown JSON error occured.';
+            break;
+    }
+
+    if ($error !== '') {
+        // throw the Exception or exit // or whatever :)
+        exit($error);
+    }
+
+    // everything is OK
+    return $result;
+}
+	
 	/**
 	 * Retrieves a database and its properties
 	 * @param string $db the DB slug (optional)
@@ -67,13 +118,11 @@ class DB_API {
 			$db = $db->name;
 		}
 		
-		
 		if ( !array_key_exists( $db, $this->dbs ) ) {
 			$this->error( 'Invalid Database', 404 );
 		}
 
 		return $this->dbs[$db];
-
 	}
 
 	/**
@@ -155,6 +204,7 @@ class DB_API {
 		);
 
 		$parts = shortcode_atts( $defaults, $parts );
+		//var_dump()
 
 		if ( $parts['db'] == null ) {
 			$this->error( 'Must select a database', 400 );
@@ -199,7 +249,7 @@ class DB_API {
 
 		try {
 			if ($db->type == 'mysql') {
-				$dbh = new PDO( "mysql:host={$db->server};dbname={$db->name}", $db->username, $db->password );
+				$dbh = new PDO( "mysql:host={$db->server};dbname={$db->name}", $db->username, $db->password, array(PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8")  );
 			}
 			elseif ($db->type == 'pgsql') {
 				$dbh = new PDO( "pgsql:host={$db->server};dbname={$db->name}", $db->username, $db->password );
@@ -236,9 +286,7 @@ class DB_API {
 
 		// cache
 		$this->connections[$db->type] = &$dbh;
-		
 		return $dbh;
-
 	}
 
 	/**
@@ -314,7 +362,6 @@ class DB_API {
 
 		$columns = $this->get_columns( $table, $db );
 		return in_array( $column, $columns );
-
 	}
 
 	/**
@@ -324,9 +371,7 @@ class DB_API {
 	 * @return string the column name
 	 */
 	function get_first_column( $table, $db = null ) {
-
 		return reset( $this->get_columns( $table, $db ) );
-
 	}
 
 	/**
@@ -343,14 +388,11 @@ class DB_API {
 		}
 
 		try {
-
 			$dbh = &$this->connect( $db );
-
 			// sanitize table name
 			if ( !$this->verify_table( $query['table'] ) ) {
 				$this->error( 'Invalid Table', 404 );
 			}
-
 			// santize column name
 			if ( $query['column'] ) {
 				if ( !$this->verify_column( $query['column'], $query['table'] ) ) {
@@ -359,7 +401,6 @@ class DB_API {
 		  }
 
 		  $sql = 'SELECT * FROM ' . $query['table'];
-
 			if ( $query['value'] && $query['column'] == null ) {
 				$query['column'] = $this->get_first_column( $query['table'] );
 			}
@@ -373,9 +414,7 @@ class DB_API {
 				if ( !$this->verify_column( $query['order_by'], $query['table'] ) ) {
 					return false;
 				}
-
 				$sql .= " ORDER BY `{$query['table']}`.`{$query['order_by']}` {$query['direction']}";
-
 			}
 
 			if ( $query['limit'] ) {
@@ -388,6 +427,47 @@ class DB_API {
 
 			$results = $sth->fetchAll( PDO::FETCH_OBJ );
 			$results = $this->sanitize_results( $results );
+		
+		} catch( PDOException $e ) {
+			$this->error( $e );
+		}
+		
+		$this->cache_set( $key, $results, $this->get_db( $db )->ttl );
+		return $results;
+	}
+		/**
+	 * Build and execute the main database query
+	 * @param array $query the database query ASSUMES SANITIZED
+	 * @return array an array of results
+	 */
+	function insert( $query, $db = null ) {
+		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
+		if ( $cache = $this->cache_get( $key ) ) {
+			return $cache;
+		}
+
+		try {
+
+			$dbh = &$this->connect( $db );
+
+			// sanitize table name
+			if ( !$this->verify_table( $query['table'] ) ) {
+				$this->error( 'Invalid Table', 404 );
+			}
+
+		      foreach( $query as $key => $value ) {
+                if (($key <> 'db') && ($key <> 'table')) {
+                        $values .= ','."'".$value."'";
+                        $columns .= ','.$key;
+                 }
+            
+            }
+            
+            $sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' ('.substr($values, 1).'); ' ;
+            echo $sql;
+			$sth = $dbh->prepare( $sql );
+			$sth->bindParam( ':value', $query['value'] );
+			$sth->execute();
 
 		} catch( PDOException $e ) {
 			$this->error( $e );
@@ -398,7 +478,179 @@ class DB_API {
 		return $results;
 
 	}
+	
+function replacejson( $query, $db = null ) {
+      if ($query['table'] == 'produtosabaixoestoqueminimo'){
+      }
+      $key = md5( serialize( $query ) . $this->get_db( $db )->name );
+		try {
+		      $dbh = &$this->connect( $db );
+              $values = '';
+              $columns = '';
+              foreach( $query as $key => $value ) {
+                if (($key <> 'db') && ($key <> 'table') ) {
+                    if (trim($value) == '') {
+                        $results['RESULT'] = 'ERROR';
+                        $results['TABLE'] = 'Url Inválida na requisição.';
+                        $this->error( json_encode($results), 404 );
+                    }
+                    if (trim($key == 'json')) {
+                      $dados = json_decode($value, true);
+                      $sql = '';
+                      $multivalues = '';
+                      foreach ($dados as $index => $val) {
+                        $values = '';
+                        $columns = '';
+                        $covel = '';
+                        foreach ($val as $i => $var) {
+                          $covel .= ','.$i.' = '."'".$var."'";    
+                          $values .= ',' . "'" . $var . "'";
+                          $columns .= ',' . $i;
+                        }
+                         $multivalues .= ','.'('.substr($values, 1).')';
+                      }
+                    }
+                 }
+      }
+        
+        $sql = 'REPLACE INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1);
+                $sth = $dbh->prepare( utf8_decode($sql) );
+               $sth->execute();
+                $results = json_encode('SUCCESS '.$sql);
+		}
+    catch( PDOException $e ) {
+			$this->error( $e );
+		}
+		
+		return $results . $sql;
+  }
 
+		/**
+	 * Build and execute the main database query
+	 * @param array $query the database query ASSUMES SANITIZED
+	 * @return array an array of results
+	 */
+  function upsertjson( $query, $db = null ) {
+        
+      if ($query['table'] == 'produtosabaixoestoqueminimo'){
+     
+      }
+
+      $key = md5( serialize( $query ) . $this->get_db( $db )->name );
+
+
+	try {
+   		$dbh = &$this->connect( $db );
+
+	      $values = '';
+	      $columns = '';
+
+      foreach( $query as $key => $value ) {
+          
+        if (($key <> 'db') && ($key <> 'table') ) {
+            if (trim($value) == '') {
+                $results['RESULT'] = 'ERROR';
+                $results['TABLE'] = 'URL Inválida na requisição.';
+                $this->error( json_encode($results), 404 );
+            }
+            if (trim($key == 'json')) {
+              $dados = json_decode($value, true);
+              $sql = '';
+              $multivalues = '';
+              foreach ($dados as $index => $val) {
+                $values = '';
+                $columns = '';
+                $covel = '';
+                
+                foreach ($val as $i => $var) {
+                  $covel .= ','.$i.' = '."'".str_replace(",",".",$var)."'";    
+                  $values .= ',' . "'" . str_replace(",",".",$var) . "'";
+                  $columns .= ',' . $i;
+                }
+                    $multivalues .= ','.'('.substr($values, 1).')';
+              
+              }
+                
+            }
+            
+         }
+      }
+        
+        $sql = 'REPLACE INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1);
+               
+                $sth = $dbh->prepare( utf8_decode($sql) );
+                $sth->execute();
+                $results['RESULT'] = 'SUCESS';
+                $results['TABLE'] = $query['table'];
+		}
+    catch( PDOException $e ) {
+     	    $results['RESULT'] = 'ERROR '.$e;
+            $results['TABLE'] = $query['table'];
+		}
+		return json_encode($results);
+  }
+
+	function insertorreplace( $query, $db = null ) {
+	    if ($query['table'] == 'blacklistedtable'){
+          die('Acesso negado.');
+      }
+		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
+		
+		if ( $cache = $this->cache_get( $key ) ) {
+			return $cache;
+		}
+
+		try {
+
+			$dbh = &$this->connect( $db );
+
+			// sanitize table name
+			if ( !$this->verify_table( $query['table'] ) ) {
+				$results['RESULT'] = 'ERROR';
+                $results['TABLE'] = 'Invalid Table.';
+                $this->error( json_encode($results), 404 );
+			}
+                $values = '';
+                $columns = '';
+                $covel = '';
+                $dbh->setAttribute(PDO::ATTR_AUTOCOMMIT,0); 
+              foreach( $query as $key => $value ) {
+                    if (($key <> 'db') && ($key <> 'table') ) {
+                        if (trim($value) == '') {
+                            $this->error( 'URL Inválida na requisição.', 404 );
+                        } 
+                            $covel .= ','.$key.' = '."'".$value."'";
+                            $values .= ','."'".$value."'";
+                            $columns .= ','.$key;
+                     }
+                }
+        if (trim($values) != ''){
+              $sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' ('.substr($values, 1).') ON DUPLICATE KEY UPDATE '.substr($covel,1) ;
+             
+          $sth = $dbh->prepare( utf8_decode($sql) );
+          $sth->execute();
+          $results = json_encode('SUCCESSO '.$sql);
+        }
+        else{
+         $results['RESULT'] = 'ERROR';
+                $results['TABLE'] = 'Dados Inválidos na requisição.';
+                $this->error( json_encode($results), 404 );  
+        }
+ 
+        $dbh->query("COMMIT;");
+
+		} catch( PDOException $e ) {
+		    $dbh->query("ROLLBACK;");
+			$results['RESULT'] = 'ERROR';
+                $results['TABLE'] = $e;
+                $this->error( json_encode($results), 404 );
+		}
+		
+		$dbh->setAttribute(PDO::ATTR_AUTOCOMMIT,1);
+		
+		return $results;
+
+	}
 	/**
 	 * Remove any blacklisted columns from the data set.
 	 */
@@ -446,7 +698,7 @@ class DB_API {
 
 		header('Content-type: application/json');
 		$output = json_encode( $data );
-		
+
 		// Prepare a JSONP callback.
 		$callback = $this->jsonp_callback_filter( $query['callback'] );
 
@@ -484,7 +736,9 @@ class DB_API {
 
   	//err out if no results
 		if ( empty( $data ) ) {
-		  $this->error( 'No results found', 404 );
+		  $results['RESULT'] = 'ERROR';
+                $results['TABLE'] = 'No Results Found.';
+                $this->error( json_encode($results), 404 );
 		  return;
 		}
 		
