@@ -37,6 +37,7 @@ API Structure
 * all rows in a table: `/[database]/[table].[format]`
 * specific row in a table: `/[database]/[table]/[ID].[format]`
 * all rows matching a query: `/[database]/[table]/[column]/[value].[format]`
+* all rows matching a query with multiples columns: `/[database]/[table]/[column[]]/[value[]].[column[]]/[value[]].[format]`
 
 Additional Parameters
 ---------------------
