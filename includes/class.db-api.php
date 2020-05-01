@@ -103,6 +103,7 @@ function json_validate($string)
     return $result;
 }
 	
+
 	/**
 	 * Retrieves a database and its properties
 	 * @param string $db the DB slug (optional)
@@ -118,11 +119,13 @@ function json_validate($string)
 			$db = $db->name;
 		}
 		
+		
 		if ( !array_key_exists( $db, $this->dbs ) ) {
 			$this->error( 'Invalid Database', 404 );
 		}
 
 		return $this->dbs[$db];
+
 	}
 
 	/**
@@ -200,6 +203,7 @@ function json_validate($string)
 			'value' => null,
 			'limit' => null,
 			'format' => 'json',
+			'json' => null,
 			'callback' =>  null,
 		);
 
@@ -249,7 +253,7 @@ function json_validate($string)
 
 		try {
 			if ($db->type == 'mysql') {
-				$dbh = new PDO( "mysql:host={$db->server};dbname={$db->name}", $db->username, $db->password, array(PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8")  );
+				$dbh = new PDO( "mysql:host={$db->server};dbname={$db->name}", $db->username, $db->password , array(PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8") );
 			}
 			elseif ($db->type == 'pgsql') {
 				$dbh = new PDO( "pgsql:host={$db->server};dbname={$db->name}", $db->username, $db->password );
@@ -286,7 +290,9 @@ function json_validate($string)
 
 		// cache
 		$this->connections[$db->type] = &$dbh;
+		
 		return $dbh;
+
 	}
 
 	/**
@@ -362,6 +368,7 @@ function json_validate($string)
 
 		$columns = $this->get_columns( $table, $db );
 		return in_array( $column, $columns );
+
 	}
 
 	/**
@@ -371,7 +378,9 @@ function json_validate($string)
 	 * @return string the column name
 	 */
 	function get_first_column( $table, $db = null ) {
+
 		return reset( $this->get_columns( $table, $db ) );
+
 	}
 
 	/**
@@ -380,33 +389,78 @@ function json_validate($string)
 	 * @return array an array of results
 	 */
 	function query( $query, $db = null ) {
-
-		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
-		
-		if ( $cache = $this->cache_get( $key ) ) {
-			return $cache;
-		}
+	    
+	   //   echo '<pre>';
+    //         var_dump($query);
+           
+	   // echo '</pre>';
+	
+	   $string= $query["json"];            
+       if (trim($string) <> ''){
+           $json_string =json_decode($string);
+           $query_insert['table']='portal_log_bloqueio';
+    
+           foreach( $json_string as $key => $value ) {
+                   
+               $query_insert[$key]=$value ;
+                   
+            }
+                
+    	    $insert = $this->insert($query_insert);
+    	    
+       }
+       
+       
 
 		try {
+		    
+		    
+
 			$dbh = &$this->connect( $db );
+
 			// sanitize table name
 			if ( !$this->verify_table( $query['table'] ) ) {
 				$this->error( 'Invalid Table', 404 );
 			}
-			// santize column name
-			if ( $query['column'] ) {
-				if ( !$this->verify_column( $query['column'], $query['table'] ) ) {
-					$query['column'] = null;
-				}
-		  }
 
 		  $sql = 'SELECT * FROM ' . $query['table'];
-			if ( $query['value'] && $query['column'] == null ) {
-				$query['column'] = $this->get_first_column( $query['table'] );
-			}
 
-			if ( $query['value'] && $query['column'] ) {
-				$sql .= " WHERE `{$query['table']}`.`{$query['column']}` = :value";
+			if (is_array($query['column']) ){
+			    
+			    $sql .= " WHERE `{$query['table']}`.`{$query['column'][0]}` = '{$query['value'][0]}'";
+			    
+			    for ($i = 1; $i <= count($query['column']) -1; $i++) {
+		    	    $sql .= " AND `{$query['table']}`.`{$query['column'][$i]}` = '{$query['value'][$i]}'";
+    		    }
+    		    
+    		    
+			}
+		
+			else 
+			{
+			    	// santize column name
+			    	
+			    	
+    			if ( $query['column'] ) {
+    				if ( !$this->verify_column( $query['column'], 
+    				      
+    				    $query['table'] ) ) {
+    				  //$this->error( 'Away Parameter column', 404 );
+    					$query['column'] = null;
+    				}
+    				
+    				if ( $query['value'] && $query['column'] == null ) {
+    				$query['column'] = $this->get_first_column( $query['table'] );
+    			}
+			
+			    
+			    
+			    	$sql .= " WHERE `{$query['table']}`.`{$query['column']}` = '{$query['value']}'";
+    				
+    		    }
+			
+    			
+			    
 			}
 
 			if ( $query['order_by'] && $query['direction'] ) {
@@ -414,7 +468,9 @@ function json_validate($string)
 				if ( !$this->verify_column( $query['order_by'], $query['table'] ) ) {
 					return false;
 				}
+
 				$sql .= " ORDER BY `{$query['table']}`.`{$query['order_by']}` {$query['direction']}";
+
 			}
 
 			if ( $query['limit'] ) {
@@ -422,18 +478,22 @@ function json_validate($string)
 			}
 
 			$sth = $dbh->prepare( $sql );
+		    //var_dump($sql);
+		   //die();
 			$sth->bindParam( ':value', $query['value'] );
 			$sth->execute();
 
 			$results = $sth->fetchAll( PDO::FETCH_OBJ );
 			$results = $this->sanitize_results( $results );
-		
+
 		} catch( PDOException $e ) {
 			$this->error( $e );
 		}
 		
 		$this->cache_set( $key, $results, $this->get_db( $db )->ttl );
+		
 		return $results;
+
 	}
 		/**
 	 * Build and execute the main database query
@@ -441,10 +501,9 @@ function json_validate($string)
 	 * @return array an array of results
 	 */
 	function insert( $query, $db = null ) {
-		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
-		if ( $cache = $this->cache_get( $key ) ) {
-			return $cache;
-		}
+
+		
+		
 
 		try {
 
@@ -464,11 +523,13 @@ function json_validate($string)
             }
             
             $sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' ('.substr($values, 1).'); ' ;
-            echo $sql;
-			$sth = $dbh->prepare( $sql );
+        
+        	$sth = $dbh->prepare( $sql );
 			$sth->bindParam( ':value', $query['value'] );
+	
 			$sth->execute();
 
+		
 		} catch( PDOException $e ) {
 			$this->error( $e );
 		}
@@ -512,16 +573,20 @@ function replacejson( $query, $db = null ) {
                     }
                  }
       }
+      //$sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1).' ON DUPLICATE KEY UPDATE '.substr($covel,1) ;
         
         $sql = 'REPLACE INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1);
                 $sth = $dbh->prepare( utf8_decode($sql) );
                $sth->execute();
                 $results = json_encode('SUCCESS '.$sql);
+     // $dbh->commit();
 		}
     catch( PDOException $e ) {
+       // $dbh->query("ROLLBACK;");
 			$this->error( $e );
 		}
 		
+		//$dbh->setAttribute(PDO::ATTR_AUTOCOMMIT,1);
 		return $results . $sql;
   }
 
@@ -539,12 +604,20 @@ function replacejson( $query, $db = null ) {
       $key = md5( serialize( $query ) . $this->get_db( $db )->name );
 
 
-	try {
-   		$dbh = &$this->connect( $db );
+		try {
 
-	      $values = '';
-	      $columns = '';
+			$dbh = &$this->connect( $db );
 
+			// sanitize table name
+	//		if ( !$this->verify_table( $query['table'] ) ) {
+			//	$this->error( 'Invalid Table', 404 );
+		//	}
+
+      $values = '';
+      $columns = '';
+
+     // $dbh->setAttribute(PDO::ATTR_AUTOCOMMIT,0);  
+       // $dbh->beginTransaction();
       foreach( $query as $key => $value ) {
           
         if (($key <> 'db') && ($key <> 'table') ) {
@@ -575,6 +648,7 @@ function replacejson( $query, $db = null ) {
             
          }
       }
+      //$sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1).' ON DUPLICATE KEY UPDATE '.substr($covel,1) ;
         
         $sql = 'REPLACE INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' '.substr($multivalues, 1);
                
@@ -582,18 +656,27 @@ function replacejson( $query, $db = null ) {
                 $sth->execute();
                 $results['RESULT'] = 'SUCESS';
                 $results['TABLE'] = $query['table'];
+      //$dbh->query("COMMIT;");
+     // $dbh->commit();
 		}
     catch( PDOException $e ) {
-     	    $results['RESULT'] = 'ERROR '.$e;
+       // $dbh->query("ROLLBACK;");
+		//	$this->error( $e );
+			$results['RESULT'] = 'ERROR '.$e;
             $results['TABLE'] = $query['table'];
 		}
+		
+		//$dbh->setAttribute(PDO::ATTR_AUTOCOMMIT,1);
 		return json_encode($results);
   }
 
+
+
 	function insertorreplace( $query, $db = null ) {
-	    if ($query['table'] == 'blacklistedtable'){
+	    if ($query['table'] == 'produtosabaixoestoqueminimo'){
           die('Acesso negado.');
       }
+
 		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
 		
 		if ( $cache = $this->cache_get( $key ) ) {
@@ -628,6 +711,7 @@ function replacejson( $query, $db = null ) {
               $sql = 'INSERT INTO ' . $query['table'].' ('.substr($columns, 1).') '.' values '. ' ('.substr($values, 1).') ON DUPLICATE KEY UPDATE '.substr($covel,1) ;
              
           $sth = $dbh->prepare( utf8_decode($sql) );
+          sleep(1);
           $sth->execute();
           $results = json_encode('SUCCESSO '.$sql);
         }
@@ -695,10 +779,9 @@ function replacejson( $query, $db = null ) {
 	 * @todo Support JSONP, with callback filtering.
 	 */
 	function render_json( $data, $query ) {
-
-		header('Content-type: application/json');
+        header('Content-type: application/json');
 		$output = json_encode( $data );
-
+		
 		// Prepare a JSONP callback.
 		$callback = $this->jsonp_callback_filter( $query['callback'] );
 

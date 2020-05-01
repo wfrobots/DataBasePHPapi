@@ -25,7 +25,6 @@ switch ($method) {
         $results = $db_api->query( $query );
         $renderer = 'render_' . $query['format'];
         $db_api->$renderer( $results, $query );
-     
     }
     break;
   case 'PUT':{
@@ -38,6 +37,7 @@ switch ($method) {
   case 'POST':{
       
       if ($_POST['json'] != ''){
+        
             $results = $db_api->upsertjson( $_REQUEST );
           //$results = $db_api->replacejson( $_REQUEST );
       }
@@ -49,7 +49,7 @@ switch ($method) {
   }
   case 'DELETE':{
     $sql = "delete `$table` where id=$key"; 
-    //$results = $db_api->delete( $_REQUEST);
+    $results = $db_api->delete( $_REQUEST);
     break;
   }
     //var_dump($_DELETE);
