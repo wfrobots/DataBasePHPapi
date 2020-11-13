@@ -478,8 +478,7 @@ function json_validate($string)
 			}
 
 			$sth = $dbh->prepare( $sql );
-		    //var_dump($sql);
-		   //die();
+	
 			$sth->bindParam( ':value', $query['value'] );
 			$sth->execute();
 
