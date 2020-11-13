@@ -535,7 +535,7 @@ function json_validate($string)
 	}
 
 	
-function delete( $query, $db = null ) {
+	function delete( $query, $db = null ) {
 		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
 		if ( $cache = $this->cache_get( $key ) ) {
 			return $cache;
@@ -582,14 +582,27 @@ function delete( $query, $db = null ) {
                 
             }
             $sql = 'DELETE FROM ' . $query['table'].' WHERE '.$covel;
+
 			$sth = $dbh->prepare( $sql );
-			$sth->bindParam( ':value', $query['value'] );
 			$sth->execute();
+			$results['RESULT'] = 'SUCESSO';
+            $results['TABLE'] = $query['table'];
+            $results['DATA'] = $covel;
+            $results = json_encode($results);
 		} catch( PDOException $e ) {
 			$this->error( $e );
+			
+			$results['RESULT'] = 'SUCESSO';
+            $results['TABLE'] = $query['table'];
+            $results['MESSAGE'] = $e;
+            
+			
 		}
+		
 		$this->cache_set( $key, $results, $this->get_db( $db )->ttl );
+		
 		return $results;
+
 	}	
 	
 function replacejson( $query, $db = null ) {
