@@ -501,14 +501,8 @@ function json_validate($string)
 	 * @return array an array of results
 	 */
 	function insert( $query, $db = null ) {
-
-		
-		
-
 		try {
-
 			$dbh = &$this->connect( $db );
-
 			// sanitize table name
 			if ( !$this->verify_table( $query['table'] ) ) {
 				$this->error( 'Invalid Table', 404 );
@@ -539,6 +533,64 @@ function json_validate($string)
 		return $results;
 
 	}
+
+	
+function delete( $query, $db = null ) {
+		$key = md5( serialize( $query ) . $this->get_db( $db )->name );
+		if ( $cache = $this->cache_get( $key ) ) {
+			return $cache;
+		}
+
+		try {
+
+			$dbh = &$this->connect( $db );
+
+			// sanitize table name
+			if ( !$this->verify_table( $query['table'] ) ) {
+				$this->error( 'Invalid Table', 404 );
+			}
+
+            foreach( $query as $key => $value ) {
+                if (($key <> 'db') && ($key <> 'table') ) {
+                    if (trim($value) == '') {
+                        $results['RESULT'] = 'ERROR';
+                        $results['TABLE'] = 'Url Inválida na requisição.';
+                        $this->error( json_encode($results), 404 );
+                    }
+                    if (trim($key == 'json')) {
+                      $dados = json_decode($value, true);
+                      $sql = '';
+                      $multivalues = '';
+                      foreach ($dados as $index => $val) {
+                        $values = '';
+                        $columns = '';
+                        $covel = '';
+                        $first = true;
+                        foreach ($val as $i => $var) {
+                          if (!$first) { 
+                            $covel .= ' AND ';
+                          }
+                          $covel .= $i.' = '."'".$var."'";    
+                          $columns .= ',' . $i;
+                          $values .= ',' . "'" . $var . "'";
+                          $first = false;
+                        }
+                         $multivalues .= ','.'('.substr($values, 1).')';
+                      }
+                    }
+                }
+                
+            }
+            $sql = 'DELETE FROM ' . $query['table'].' WHERE '.$covel;
+			$sth = $dbh->prepare( $sql );
+			$sth->bindParam( ':value', $query['value'] );
+			$sth->execute();
+		} catch( PDOException $e ) {
+			$this->error( $e );
+		}
+		$this->cache_set( $key, $results, $this->get_db( $db )->ttl );
+		return $results;
+	}	
 	
 function replacejson( $query, $db = null ) {
       if ($query['table'] == 'produtosabaixoestoqueminimo'){
